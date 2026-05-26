@@ -88,12 +88,12 @@ export default function AuthPage() {
           if (oldKey) {
             try {
               await storePrivateKey(res.user.username, oldKey);
+              localStorage.removeItem(`priv_${res.user.username}`); // KR-01: taşındıktan sonra extractable JWK'yı localStorage'dan sil
               keyRestored = true;
             } catch { /* ignore */ }
           }
         }
 
-        
         const userToStore = {
           id:         res.user.id,
           username:   res.user.username,

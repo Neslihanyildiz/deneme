@@ -10,11 +10,12 @@ import UploadZone from "@/components/UploadZone";
 import ShareModal from "@/components/ShareModal";
 import { getPrivateKey } from "@/lib/keyStorage";
 import { unwrapAESKey } from "@/lib/rsa";
-import { decryptFile, decryptString } from "@/lib/aes"; // ← decryptString eklendi
+import { decryptFile, decryptString } from "@/lib/aes";
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [files, setFiles] = useState<FileData[]>([]);
+  const [sharedCount, setSharedCount] = useState<number | null>(null); // ← YENİ
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showShareModal, setShowShareModal] = useState(false);
@@ -27,8 +28,13 @@ export default function DashboardPage() {
       if (userData) {
         const parsedUser = JSON.parse(userData) as User;
         setUser(parsedUser);
+
         const rawFiles = await api.getFiles();
         setFiles(rawFiles);
+
+        // ← YENİ: Paylaşılan dosya sayısını çek
+        const sharedFiles = await api.getSharedFiles();
+        setSharedCount(sharedFiles.length);
 
         const privateKey = await getPrivateKey(parsedUser.username);
         setNoKey(!privateKey);
@@ -60,27 +66,19 @@ export default function DashboardPage() {
     }
 
     try {
-      // 1. Get signed URL from backend (IDOR check happens here)
       const { url } = await api.getDownloadUrl(fileId);
 
-      // 2. Fetch the raw encrypted content from Supabase Storage
       const response = await fetch(url);
       if (!response.ok) throw new Error("Failed to fetch file from storage");
       const encryptedContent = new Uint8Array(await response.arrayBuffer());
 
-      // 3. Get private key from IndexedDB (non-extractable)
       const privateKey = await getPrivateKey(user.username);
       if (!privateKey) throw new Error("Private key not found. Please re-register.");
 
-      // 4. Parse the wrapped AES key and unwrap it
       const keyArray = JSON.parse(encryptedKey) as number[];
       const keyBuffer = new Uint8Array(keyArray).buffer;
       const aesKey = await unwrapAESKey(keyBuffer, privateKey);
 
-      // 5. Dosya adını çöz.
-      //    Yeni yüklenen dosyalar: fileName şifreli base64 → decryptString ile çöz.
-      //    Eski yüklenen dosyalar (şifrelemeden önce): decryptString hata verir,
-      //    catch bloğu devreye girer ve orijinal fileName kullanılır.
       let realFileName = fileName;
       try {
         realFileName = await decryptString(fileName, aesKey);
@@ -88,13 +86,12 @@ export default function DashboardPage() {
         // Eski dosya — şifrelenmemiş isim, olduğu gibi kullan
       }
 
-      // 6. Dosya içeriğini çöz ve indir
       const decryptedBuffer = await decryptFile(encryptedContent, aesKey);
       const blob = new Blob([decryptedBuffer]);
       const objectUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = realFileName; // ← fileName yerine realFileName
+      a.download = realFileName;
       a.click();
       window.URL.revokeObjectURL(objectUrl);
     } catch (error) {
@@ -143,7 +140,10 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-navy-600 text-sm font-medium">Shared With You</p>
-              <p className="text-3xl font-bold text-navy-900 mt-2">—</p>
+              {/* ← DEĞİŞTİ: hardcoded "—" yerine dinamik sayı */}
+              <p className="text-3xl font-bold text-navy-900 mt-2">
+                {sharedCount === null ? "—" : sharedCount}
+              </p>
             </div>
             <div className="p-4 rounded-lg bg-navy-100">
               <Download className="w-8 h-8 text-navy-900" />
